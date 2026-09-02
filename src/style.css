@@ -128,6 +128,8 @@
       padding-bottom: 4px;
     }
     .ctrl-group.dog h3 { color: #6fd0ff; border-color: rgba(110,208,255,0.3); }
+    .ctrl-group.storm h3 { color: #b070ff; border-color: rgba(176,112,255,0.3); }
+    .ctrl-group.perforator h3 { color: #ff8a5c; border-color: rgba(255,138,92,0.3); }
 
     /* Two-column keybinding grid (Terraria style) */
     .kb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; font-size: 18px; line-height: 1.6; }

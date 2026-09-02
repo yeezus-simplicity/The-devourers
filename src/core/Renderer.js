@@ -4,15 +4,63 @@ import { DogDeathBoomGL } from './DogDeathBoomGL.js';
 import { DogLaserWallGL } from './DogLaserWallGL.js';
 import { loop, resize } from './Game.js';
 import { buildSegments, drawSegmentsBase, drawSegmentsGlow } from '../entities/Scourge.js';
-import { H, THANATOS_BLUE, THANATOS_RED, THANATOS_TRANS, W, animTime, clamp01, ctx, currentChar, currentCharKey, currentTheme, darkLevel, easeOutCubic, ensureFxCanvas, getWhiteTint, imgs, lerp, lightningOn, mouse, particles, points, segments, thanatosPhase, thanatosTimer, set_particles, dogClip } from './globals.js';
+import { H, THANATOS_BLUE, THANATOS_RED, THANATOS_TRANS, W, animTime, clamp01, ctx, currentChar, currentCharKey, currentTheme, darkLevel, easeOutCubic, ensureFxCanvas, getWhiteTint, imgs, lerp, lightningOn, mouse, particles, points, segments, sepulcherArms, thanatosPhase, thanatosTimer, set_particles, dogClip } from './globals.js';
 import { screenShake } from '../utils/ScreenShake.js';
 import { effects } from '../utils/effects.js';
 import { dogDialogue } from './DogDialogue.js';
+import { stormSkills } from './StormSkills.js';
+import { sepulcherSkills } from './SepulcherSkills.js';
+import { supremeCal } from '../entities/SupremeCalamitas.js';
 
 export function updateHUD() {
   // 游玩界面不显示任何文字提示，仅保留空 hud 容器
   const hud = document.getElementById('hud');
   if (hud) hud.innerHTML = '';
+}
+
+// 墓穴魔手臂绘制（移植 SepulcherArm.cs 的 PreDraw）：前臂 → 上臂（垂直翻转）→ 手掌（按方向水平翻转）
+// 单只墓穴魔手臂绘制（前臂/上臂/手掌三段贴图，C# FlipVertically 移植）
+// 供 drawSepulcherArmsAt 按深度调用：在所属体节画完后立刻画该节手臂，
+// 使手臂参与体节深度排序（后面的手臂会被更靠前的体节/头部盖住，不挡前方）。
+function drawSepulcherArmOne(arm) {
+  const seg = segments[arm.segIndex];
+  if (!seg || seg.deathGone) return;
+  const S = currentChar.scale * (currentChar.bodyScale || 1);   // 手臂整体缩放（随体节 bodyScale 放大）
+  const forearm = imgs.forearm, armImg = imgs.arm, hand = imgs.hand;
+  if (!forearm || !armImg || !hand) return;
+  const l0 = arm.limbs[0], l1 = arm.limbs[1];
+  // 前臂：锚点中心，旋转 = limb0.rot + 90°
+  ctx.save();
+  ctx.translate(l0.x, l0.y);
+  ctx.rotate(l0.rot + Math.PI / 2);
+  ctx.scale(S, S);
+  ctx.drawImage(forearm, -forearm.width / 2, -forearm.height / 2);
+  ctx.restore();
+  // 上臂：锚点顶部中心，C# FlipVertically = 仅翻转【贴图内容】（几何方向不变），旋转 = limb1.rot + 90°
+  ctx.save();
+  ctx.translate(l1.x, l1.y);
+  ctx.rotate(l1.rot + Math.PI / 2);
+  ctx.scale(S, S);
+  ctx.scale(1, -1);   // 仅翻内容（等效 C# FlipVertically）；锚点 y 补偿到 -height → 贴图从 L1 向下延伸（不反指、不与手掌重叠）
+  ctx.drawImage(armImg, -armImg.width / 2, -armImg.height);
+  ctx.restore();
+  // 手掌：锚点顶部中心，按方向水平翻转，旋转 = limb1.rot - 90°
+  const flipX = arm.direction === -1;
+  ctx.save();
+  ctx.translate(l1.x, l1.y);
+  ctx.rotate(l1.rot - Math.PI / 2);
+  ctx.scale(flipX ? -S : S, S);
+  ctx.drawImage(hand, -hand.width / 2, 0);
+  ctx.restore();
+}
+
+// 绘制挂载在指定体节上的墓穴魔手臂（0~2 只），在 drawSegmentsBase 体节循环内按深度调用
+export function drawSepulcherArmsAt(segIndex) {
+  if (currentCharKey !== 'sepulcher' || !sepulcherArms.length) return;
+  for (const arm of sepulcherArms) {
+    if (arm.segIndex !== segIndex) continue;
+    drawSepulcherArmOne(arm);
+  }
 }
 
 
@@ -2080,8 +2128,12 @@ export function draw() {
   if (DoGSky.intensity > 0.001) DoGSky.draw(ctx);   // DoG 战天背景天空盒（v0812bc），?solo=N 可单测某层
   if (rainOn) drawRain();   // 雨在背景之上、蠕虫之后之下：作为背景层天气，夜里被暗化层压暗
 
+  // 闪电 bolt：绘制在蠕虫本体「之下」（boss 经过时盖住闪电），随昼夜暗化层一起压暗
+  drawLightning();
+
   // 所有角色的基础体节都在暗化层之前绘制，受昼夜暗化影响（Astrum Deus 的暗色体节也会随夜变暗）
   drawSegmentsBase();
+  // 墓穴魔手臂已并入 drawSegmentsBase 体节循环内绘制（按段深度排序：后面体节的手臂会被前方体节/头部盖住）
 
   // 昼夜光系统：夜晚整体压暗（背景/云/雷/粒子/蠕虫一并变暗），day 不叠
   if (darkLevel > 0) {
@@ -2092,10 +2144,14 @@ export function draw() {
     ctx.restore();
   }
 
-  // 闪电 bolt：在暗化层之后绘制，不被黑夜暗化层压暗 → 高亮可见（配合下方全屏闪白）
-  drawLightning();
   // 闪电照亮环境：在暗化层之后叠加全屏闪光，让闪电瞬间把夜空提亮（跟随 lightningIntensity）
   drawLightningFlash();
+
+  // Storm Weaver 技能特效（闪电球/冰霜/龙卷风/蜕壳碎块）：暗化层之后绘制，保持亮色
+  if (currentCharKey === 'storm_weaver') stormSkills.draw();
+
+  // 墓穴魔 Brimstone Barrage 弹幕特效（飞刃 + 火焰尘 + 释放闪光 + 屏幕红闪）：暗化层之后绘制
+  if (currentCharKey === 'sepulcher') sepulcherSkills.draw();
 
   // 塔纳托斯红光散发：在暗化之后叠加，让红色光点在暗场景里"照亮"周围、更醒目
   drawThanatosGlow();
@@ -2103,7 +2159,8 @@ export function draw() {
   // 自发光角色（如 Astrum Deus）：暗化层「之后」单独绘制发光像素（glow 图里有颜色的那些点），
   // 原色输出、不受黑夜压暗 → 呈现显眼亮色；并按真实深度（A 在最前、头在尾前）正确遮挡，
   // 既不会被后方虫体盖掉，也不会浮到另一条虫之上。
-  if (currentChar.selfLuminous) drawSegmentsGlow();
+  // Storm Weaver 的尾部亮纹也走此层：暗化层之后绘制（夜间保持明亮）+ 靠前体节遮挡（不透过重叠体节）。
+  if (currentChar.selfLuminous || currentCharKey === 'storm_weaver') drawSegmentsGlow();
 
   // DoG 颚发光：暗化层 + 头部之后绘制（跟随颚旋转，可见且不被压暗/不被头盖）
   // P2：始终显示明亮颚发光；P1：仅在 armorOff（纯能量）形态显示颚发光（普通 P1 暗淡发光在 base 层）。
@@ -2173,6 +2230,8 @@ export function draw() {
 
   // DoG 激光墙可见特效（暗化层之上）—— v0813c 默认关闭（DOG_LASER_WALL_ENABLED）
   if (DOG_LASER_WALL_ENABLED && currentCharKey === 'devourer_of_gods' && DoGAnim.laserActive) drawLaserWall();
+  // 至尊灾厄跟随着：绘制在 sepulcher 本体/手臂之上、出仓滤镜之下
+  if (currentCharKey === 'sepulcher') supremeCal.draw(ctx, animTime);
   // DoG 死亡顶层爆炸 + 全屏白闪（最上层，确保可见）
   if (currentCharKey === 'devourer_of_gods') drawDeathBurst();
   if (DoGAnim.deathFlash > 0.001) {
@@ -2247,11 +2306,12 @@ export function draw() {
 // 普通（非自发光）角色的体节绘制：在暗化层之前画，受暗化影响
 
 export function drawLightningFlash() {
-  if (!lightningOn || (currentTheme !== 'void' && currentTheme !== 'thanatos')) return;
+  if (!lightningOn || (currentTheme !== 'void' && currentTheme !== 'thanatos' && currentTheme !== 'storm')) return;
   if (lightningIntensity <= 0.01) return;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  ctx.fillStyle = `rgba(190, 210, 255, ${Math.min(1, lightningIntensity) * 0.4})`;
+  // 蓝白全屏闪：亮白偏蓝，跟随 lightningIntensity（风暴/塔纳托斯/虚空通用）
+  ctx.fillStyle = `rgba(220, 240, 255, ${Math.min(1, lightningIntensity) * 0.5})`;
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
 }

@@ -1,15 +1,20 @@
 // ===== core/Game.js (migrated from scourge_selector.html) =====
-import { DoGSky, RAIN_COUNT, clouds, computeDarkLevel, getBackground, initClouds, initLightning, initRain, loadBackgrounds, rainDrops, rainOn, spawnRainDrop, updateClouds, updateLightning, updateRain, set_rainOn, set_rainDrops} from './Background.js';
+import { DoGSky, clouds, computeDarkLevel, getBackground, initClouds, initLightning, initRain, loadBackgrounds, rainDrops, rainOn, updateClouds, updateLightning, updateRain, set_rainOn, set_rainDrops} from './Background.js';
 import { DOG_LASER_WALL_ENABLED, DoGAnim, draw, initParticles, prewarmDoGEffects, startArmorFadeTransition, startPhaseTransition, updateDoGAnimations, updateParticles } from './Renderer.js';
 import { buildSegments, segMin, segStep, update } from '../entities/Scourge.js';
 import { handleRebind, hideControls, isBound, showTitle } from '../ui/SelectionScreen.js';
 import { CHARACTERS, IMAGES, onCharactersReload } from '../config/characters.js';
 import { screenShake } from '../utils/ScreenShake.js';
 import { effects } from '../utils/effects.js';
-import { H, W, animTime, canvas, cloudsOn, ctx, currentChar, currentCharKey, currentTheme, darkLevel, imgs, isDual, lastTs, lightningOn, mouse, points, rafId, segments, thanatosPhase, thanatosTimer, timeOfDayOverride, worms, set_canvas, set_ctx, set_W, set_H, set_lastTs, set_animTime, set_rafId, set_currentCharKey, set_currentChar, set_currentTheme, set_cloudsOn, set_lightningOn, set_timeOfDayOverride, set_darkLevel, set_imgs, set_thanatosPhase, set_thanatosTimer, set_segments, set_points, set_worms, set_isDual} from './globals.js';
+import { H, W, animTime, canvas, cloudsOn, ctx, currentChar, currentCharKey, currentTheme, darkLevel, imgs, isDual, lastTs, lightningOn, mouse, points, rafId, segments, thanatosPhase, thanatosTimer, timeOfDayOverride, worms, set_canvas, set_ctx, set_W, set_H, set_lastTs, set_animTime, set_rafId, set_currentCharKey, set_currentChar, set_currentTheme, set_cloudsOn, set_lightningOn, set_timeOfDayOverride, set_darkLevel, set_imgs, set_thanatosPhase, set_thanatosTimer, set_segments, set_points, set_worms, set_isDual, set_sepulcherArms} from './globals.js';
 import { dogDialogue } from './DogDialogue.js';
 import { playBossReel } from './BossReelIntro.js';
 import { initInput } from './Input.js';
+import { stormSkills } from './StormSkills.js';
+import { sepulcherSkills } from './SepulcherSkills.js';
+import { spawnEffect } from '../effects/SpawnBossEffect.js';
+import { supremeCal } from '../entities/SupremeCalamitas.js';
+import { supremeBrothers } from '../entities/SupremeBrothers.js';
 
 export function init() {
   set_canvas(document.getElementById('c'));
@@ -54,6 +59,8 @@ export function init() {
   document.getElementById('preview-astrum').src = IMAGES.astrum_deus.head;
   // 选角预览用独立 preview 字段（避免把二阶段头覆盖进游戏内一阶段 head）
   document.getElementById('preview-devourer').src = (IMAGES.devourer_of_gods.preview || IMAGES.devourer_of_gods.head).url;
+  document.getElementById('preview-storm').src = IMAGES.storm_weaver.head;
+  document.getElementById('preview-sepulcher').src = IMAGES.sepulcher.head;
 }
 
 
@@ -80,10 +87,16 @@ export function loop(ts) {
     updateClouds(dt);
     updateLightning(dt);
     updateRain(dt);
+    stormSkills.update(dt);        // Storm Weaver 技能更新（闪电球/冰霜/龙卷风/蜕壳）
+    if (currentCharKey === 'sepulcher') {
+      sepulcherSkills.update(dt);          // 墓穴魔 Brimstone Barrage 弹幕更新
+      supremeCal.update(dt, points[0]);    // 至尊灾厄跟随着：绕 sepulcher 头部惯性漂浮
+    }
     updateDoGAnimations(dt);       // DoG 动画状态机 + 粒子更新
     DoGSky.update(dt, currentCharKey, currentChar);   // DoG 战天背景：淡入淡出 + 天空色联动
     effects.update(dt);             // 扩展接口：驱动自定义拖尾/粒子效果
     screenShake.update(dt);         // 屏幕震动：计算本帧偏移并衰减
+    spawnEffect.update(dt);         // 墓穴魔出仓召唤特效：推进暗化/红色调时间线
     if (screenShake.active) {
       ctx.save();
       ctx.translate(screenShake.x, screenShake.y);
@@ -96,6 +109,22 @@ export function loop(ts) {
       //   屏幕震动结束后画面永远偏移不复位（用户反馈）。
       if (screenShake.active) ctx.restore();
     }
+    // ★ 出仓召唤暗化/红色滤镜：必须放在震动坐标还原（ctx.restore）之后、以 identity 画满全屏，
+    //   才能完全盖住屏幕震动时画布边缘露出的空白区域，且滤镜不随震动偏移。
+    if (currentCharKey === 'sepulcher' && spawnEffect.active) {
+      const dh = spawnEffect.darken();
+      if (dh > 0) {
+        ctx.save(); ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = `rgba(8,4,6,${dh})`;
+        ctx.fillRect(0, 0, W, H); ctx.restore();
+      }
+      const rd = spawnEffect.red();
+      if (rd > 0) {
+        ctx.save(); ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = `rgba(190,26,18,${rd})`;
+        ctx.fillRect(0, 0, W, H); ctx.restore();
+      }
+    }
   } catch (err) {
     console.error('[loop] 渲染异常，已跳过本帧：', err);
   }
@@ -103,9 +132,19 @@ export function loop(ts) {
 }
 
 
+// 从精灵表裁剪出子图（canvas），用于墓穴魔把「两张体节并排」的 body_sheet 拆成 body1/body2
+function cropSheet(src, sx, sy, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(src, sx, sy, w, h, 0, 0, w, h);
+  return c;
+}
+
 export function startGame(key) {
   set_currentCharKey(key);
   set_currentChar(CHARACTERS[key]);
+  // 每次进入都重置形态状态（armorOff 等），避免上次退出残留 → 保证重进回到初代/阶段一
+  currentChar.armorOff = false;
   // 进入时把体节数重置为“默认”值（= segBase，注意区别于最短下限 segFloor），避免上次增减残留，保证每次进虫都是默认大小
   if (currentCharKey === 'the_perforator') {
     for (const vk in currentChar.variants) currentChar.variants[vk].bodyCount = currentChar.variants[vk].segBase;
@@ -115,6 +154,11 @@ export function startGame(key) {
   // 由 background 参数推导行为主题，由 clouds/lightning 参数推导各自的开关
   const bg = getBackground(currentChar.background);
   set_currentTheme(bg.theme);
+  // 进入墓穴魔（受诅咒祭坛召唤等价动作）时自动播放"出仓召唤"特效：暗化 + 震屏 + 红色调
+  if (key === 'sepulcher') {
+    spawnEffect.trigger();
+    supremeCal.ensure();            // 启用「至尊灾厄」跟随着 + 懒加载两张形态贴图
+  }
   set_cloudsOn(currentChar.clouds === 1);
   set_lightningOn(currentChar.lightning === 1);
   // 由 timeOfDay 参数推导昼夜暗化强度（切换角色时清掉 L 键的覆盖，回到默认）
@@ -158,6 +202,11 @@ export function startGame(key) {
     const img = new Image();
     img.onload = () => {
       imgs[type] = img;
+      // 墓穴魔：body_sheet 是「两张体节并排」的精灵表（左 82×82 / 右 87×82，x=82 空列分隔），拆成 body1/body2
+      if (key === 'sepulcher' && type === 'body_sheet') {
+        imgs.body1 = cropSheet(img, 0, 0, 82, 82);
+        imgs.body2 = cropSheet(img, 83, 0, 87, 82);
+      }
       loaded++;
       if (loaded === entries.length) { imgsReady = true; maybeEnter(); }
     };
@@ -231,6 +280,9 @@ export function returnToSelection() {
   set_points([]);
   set_worms([]);
   set_isDual(false);
+  set_sepulcherArms([]);   // 清空墓穴魔手臂
+  stormSkills.reset();   // 清空 Storm Weaver 技能残留特效
+  sepulcherSkills.reset();   // 清空墓穴魔 Brimstone 弹幕残留
   dogDialogue.clear();   // 退出时清掉残留台词/队列
   const sel = document.getElementById('selection');
   sel.style.display = 'flex';
@@ -280,6 +332,46 @@ export function onKey(e) {
     return;
   }
   if (!currentChar) return;
+
+  // 至尊灾厄：切换兜帽 / 无兜帽形态（仅墓穴魔场景）
+  if (currentCharKey === 'sepulcher' && isBound('sepulcher_form', e)) {
+    supremeCal.toggleForm();
+    return;
+  }
+
+  // 至尊灾厄：切换能量护盾开/关（仅墓穴魔场景）
+  if (currentCharKey === 'sepulcher' && isBound('sepulcher_shield', e)) {
+    supremeCal.toggleShield();
+    return;
+  }
+
+  // 至尊灾厄：释放冲刺技能（仅墓穴魔场景）
+  if (currentCharKey === 'sepulcher' && isBound('sepulcher_dash', e)) {
+    supremeCal.triggerDash();
+    return;
+  }
+
+  // 至尊灾厄：召唤/退场兄弟（toggle，键位走 isBound 配置，不硬编码）
+  //  · 兄弟不在场 → 正常召唤（飞向中心施法后左右各生出一只）
+  //  · 兄弟在场且已完全出场 → 触发退场（原贴图渐隐 → 亮纹渐隐，原地淡出）
+  if (currentCharKey === 'sepulcher' && isBound('sepulcher_cast', e)) {
+    if (supremeBrothers.active) supremeBrothers.startExit();
+    else supremeCal.triggerCast();
+    return;
+  }
+
+  // 至尊灾厄：BlastCast 巨型火球（默认 5，向鼠标发射爆炸火球，键位走 isBound 配置）
+  if (currentCharKey === 'sepulcher' && isBound('sepulcher_blast', e)) {
+    supremeCal.triggerBlast();
+    return;
+  }
+
+  // 至尊灾厄之兄弟：两兄弟同时攻击（仅墓穴魔场景，且两兄弟都已在场时才生效）
+  // 键位走 isBound 配置（默认 4），可在 Controls 界面自定义，不硬编码键码
+  if (currentCharKey === 'sepulcher' && isBound('sepulcher_bros_attack', e)) {
+    supremeBrothers.triggerAttack();
+    return;
+  }
 
   // Day / Dusk / Night cycle
   if (isBound('day_cycle', e)) {
@@ -368,6 +460,26 @@ export function onKey(e) {
       buildSegments();
     }
   }
+  // Storm Weaver 形态：P 只能「蜕壳」（单向，蜕完不能按 P 变回）；R 键恢复装甲初代形态
+  if (currentCharKey === 'storm_weaver') {
+    if (e.repeat) return;   // 忽略长按自动重复，技能/切形态均为单次触发
+    if (isBound('storm_toggleform', e)) {
+      if (!currentChar.armorOff) {          // 仅装甲形态可蜕壳
+        currentChar.armorOff = true;
+        stormSkills.shedArmor();            // 迸裂装甲碎块 + 紫尘
+        stormSkills.swapForm();             // 原地换装，保持身体姿态（平滑变身）
+      }
+    }
+    // Storm Weaver 技能：4=头部闪电球 / 5=天降冰霜 / 6=尾部龙卷风
+    if (isBound('storm_lightning', e)) stormSkills.spawnOrb();
+    else if (isBound('storm_frost', e)) stormSkills.spawnFrost();
+    else if (isBound('storm_tornado', e)) stormSkills.spawnTornado();
+  }
+  // 墓穴魔技能：1=Brimstone Barrage（头部前释放 30 颗圆形扩散飞刃 + 释放闪光 + 火焰拖尾）
+  if (currentCharKey === 'sepulcher') {
+    if (e.repeat) return;   // 忽略长按自动重复，单次触发
+    if (isBound('sepulcher_brimstone', e)) sepulcherSkills.spawnBarrage();
+  }
   // Reset position
   if (isBound('reset_pos', e)) {
     if (isDual) {
@@ -387,12 +499,17 @@ export function onKey(e) {
       });
       segments.forEach(s => s.angle = 0);
     }
+    // Storm Weaver：R 键同时恢复装甲初代形态（蜕壳后回到初代）
+    if (currentCharKey === 'storm_weaver' && currentChar.armorOff) {
+      currentChar.armorOff = false;
+      stormSkills.swapForm();   // 原地换装，保持身体姿态（平滑变回）
+    }
   }
   // Toggle rain
   if (isBound('toggle_rain', e)) {
     set_rainOn(!rainOn);
     set_rainDrops([]);
-    if (rainOn) for (let i = 0; i < RAIN_COUNT; i++) spawnRainDrop(true);
+    // 开启时不再整屏预铺：雨滴由 updateRain 从屏幕上方自然生成、向下飘落（从天上落下）
   }
 
   // Perforator form switch

@@ -229,6 +229,36 @@
       "bloom_ring_thin": {
         "url": "textures/dog/BloomRingThinLarge.png"
       }
+    },
+    "storm_weaver": {
+      "head": "characters/storm_weaver/head.png",
+      "body": "characters/storm_weaver/body.png",
+      "tail": "characters/storm_weaver/tail.png",
+      "head_naked": "characters/storm_weaver/head_naked.png",
+      "body_naked": "characters/storm_weaver/body_naked.png",
+      "tail_naked": "characters/storm_weaver/tail_naked.png",
+      "tail_glow": ["characters/storm_weaver/tail_glow.png"],
+      "lightning_orb": "textures/storm-weaver/lightningOrb.png",
+      "frost_wave": "textures/storm-weaver/frostWave.png",
+      "tornado_rain": "textures/storm-weaver/tornadoRain_v2.png",
+      "tornado_snow": "textures/storm-weaver/tornadoSnow_v2.png",
+      "armor_gore_body1": "characters/storm_weaver/armorBodyGore1.png",
+      "armor_gore_body2": "characters/storm_weaver/armorBodyGore2.png",
+      "armor_gore_body3": "characters/storm_weaver/armorBodyGore3.png",
+      "armor_gore_head": "characters/storm_weaver/armorHeadGore1.png",
+      "armor_gore_tail1": "characters/storm_weaver/armorTailGore1.png",
+      "armor_gore_tail2": "characters/storm_weaver/armorTailGore2.png",
+      "preview": "characters/storm_weaver/head.png"
+    },
+    "sepulcher": {
+      "head": "characters/sepulcher/head.png",
+      "body_sheet": "characters/sepulcher/body.png",
+      "tail": "characters/sepulcher/tail.png",
+      "energy_ball": "characters/sepulcher/energy_ball.png",
+      "arm": "characters/sepulcher/arm.png",
+      "forearm": "characters/sepulcher/forearm.png",
+      "hand": "characters/sepulcher/hand.png",
+      "preview": "characters/sepulcher/head.png"
     }
   },
   "CHARACTERS": {
@@ -398,6 +428,53 @@
       "phase": 1,
       "armorOff": false,
       "selfLuminous": true
+    },
+    "storm_weaver": {
+      "name": "Storm Weaver",
+      "scale": 1.2,
+      "overlap": 18,
+      "bodyCount": 6,
+      "segBase": 6,
+      "segFloor": 4,
+      "maxSpeed": 8,
+      "accel": 0.07,
+      "turnSmooth": 0.16,
+      "particleCount": 30,
+      "background": 7,
+      "clouds": 0,
+      "lightning": 1,
+      "timeOfDay": "day"
+    },
+    "sepulcher": {
+      "name": "墓穴魔",
+      "scale": 1.1,
+      "bodyScale": 1.35,
+      "overlap": 22,
+      "bodyCount": 9,
+      "segBase": 9,
+      "segFloor": 3,
+      "bodyStyle": "alternating",
+      "maxSpeed": 3,
+      "accel": 0.025,
+      "turnSmooth": 0.16,
+      "headLag": 0.7,
+      "particleCount": 30,
+      "background": 8,
+      "clouds": 0,
+      "lightning": 0,
+      "timeOfDay": "day",
+      "frameCount": 5,
+      "framePeriod": 0.08,
+      "waveOffset": 0.03,
+      "frames": {
+        "energy_ball": {
+          "sheet": "energy_ball",
+          "w": 22,
+          "fh": 24,
+          "period": 24,
+          "scale": 1.0
+        }
+      }
     }
   }
 }

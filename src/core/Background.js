@@ -23,6 +23,15 @@ export const BG_SOURCES = {
   void: 'sprites/sprite_041.png',
   void2: 'backgrounds/Splash_4_0.png',
   thanatos: 'backgrounds/Background_183.png',
+  storm: 'backgrounds/Background_113.png',
+  storm_fill: 'sky/Sunrise_Blue.png',
+
+  // 墓穴魔：地下世界双层背景（底层地形 2 + 上层岩石剪影 11），运行时黑底填充 + 顶部对齐叠加
+  underworld:     'backgrounds/Underworld_2.png',   // 底层
+  underworld_ov:  'backgrounds/Underworld_11.png',  // 上层（覆盖其上）
+
+  // 墓穴魔地下世界背景：硫磺之心（BrimstoneHeart，6 帧竖向心跳动画）
+  brimstone_heart: 'backgrounds/BrimstoneHeart.png',
 };
 
 export let bgCache = {};
@@ -35,7 +44,9 @@ export const BACKGROUND_LIST = [
   { id: 3, name: '渊海',      theme: 'aquatic',  src: BG_SOURCES.aquatic, fill: BG_SOURCES.aquatic_fill },
   { id: 4, name: '虚空浮岛',  theme: 'void',     src: BG_SOURCES.void },
   { id: 5, name: '星虚空',    theme: 'void2',    src: BG_SOURCES.void2 },
-  { id: 6, name: '塔纳托斯',  theme: 'thanatos', src: BG_SOURCES.thanatos }
+  { id: 6, name: '塔纳托斯',  theme: 'thanatos', src: BG_SOURCES.thanatos },
+  { id: 7, name: '风暴',      theme: 'storm',    src: BG_SOURCES.storm, fill: BG_SOURCES.storm_fill },
+  { id: 8, name: '冥狱',      theme: 'underworld', src: BG_SOURCES.underworld, overlay: BG_SOURCES.underworld_ov }
 ];
 
 export function getBackground(id) {
@@ -104,13 +115,11 @@ export let rainDrops = [];             // 活跃雨滴
 
 export let rainOn = false;             // 下雨开关（键盘 T 切换）
 
-export const RAIN_COUNT = 220;         // 同时存在的雨滴数（填满屏幕）
+export const RAIN_COUNT = 200;         // 同时存在的雨滴数（细密小雨，从上方持续落下）
 
 export const RAIN_SPEED = 520;         // 下落速度（像素/秒）
 
 export const RAIN_ANGLE = 16 * Math.PI / 180;   // 偏右斜角（度→弧度）
-
-export const RAIN_FRAME_RATE = 9;      // 帧/秒：动画从 1→3（短→中→长）循环
 
 export let rainFrameW = 8, rainFrameH = 42;     // 单帧尺寸（图片加载后更新）
 
@@ -127,24 +136,24 @@ export function initRain() {
   rainDrops = [];
 }
 
-// initial=true 时在整屏随机铺开（开局即满屏），否则从屏幕上方重新生成
+// 雨滴一律从屏幕上方生成，向下飘落、落出屏幕底部后回收（从天上落下）
 
-export function spawnRainDrop(initial) {
+export function spawnRainDrop() {
   const extra = W * 0.35;   // 斜向飘落所需的多余水平宽度
   const x = -extra + Math.random() * (W + extra * 2);
-  const y = initial ? (Math.random() * (H + 80) - 40) : (-Math.random() * H * 0.4 - 20);
+  const y = -Math.random() * H * 0.4 - 20;
   rainDrops.push({
     x, y,
     v: RAIN_SPEED * (0.75 + Math.random() * 0.5),   // 速度有差异
-    scale: 1.2 + Math.random() * 1.4,               // 大小有差异
-    off: Math.random() * 3,                          // 帧动画相位偏移
+    scale: 0.5 + Math.random() * 0.6,               // 大小有差异（细小雨丝）
+    frame: Math.floor(Math.random() * 3),           // 固定帧（短/中/长），不随时间切换 → 不闪烁
   });
 }
 
 
 export function updateRain(dt) {
   if (!rainOn) return;
-  while (rainDrops.length < RAIN_COUNT) spawnRainDrop(false);
+  while (rainDrops.length < RAIN_COUNT) spawnRainDrop();
   const vx = Math.sin(RAIN_ANGLE), vy = Math.cos(RAIN_ANGLE);
   for (let i = rainDrops.length - 1; i >= 0; i--) {
     const d = rainDrops[i];
@@ -159,7 +168,7 @@ export function drawRain() {
   if (!rainOn || !rainImg || rainImg.naturalWidth === 0) return;
   const fw = rainFrameW, fh = rainFrameH;
   for (const d of rainDrops) {
-    const f = Math.floor(animTime * RAIN_FRAME_RATE + d.off) % 3;  // 0→1→2 循环（短→中→长）
+    const f = d.frame;   // 固定帧，不随时间循环 → 雨丝长度稳定、不闪烁
     const dw = fw * d.scale, dh = fh * d.scale;
     ctx.save();
     ctx.translate(d.x, d.y);
@@ -201,7 +210,7 @@ export const CLOUD_SCALE_RANGE = [0.3, 0.7];     // 缩放范围（适配顶部�
 export const CLOUD_Y_MAX_RATIO = 0.18;           // 默认：云朵出现在画布顶部（渊海等顶部透明天空）
 
 export const SKY_THEMES = { aquatic: true, void: true };  // 含透明天空区的背景主题，显示云朵
-export const LIGHTNING_THEMES = { void: true, thanatos: true };  // 浮岛类背景（下方透明天空）支持雷电
+export const LIGHTNING_THEMES = { void: true, thanatos: true, storm: true };  // 浮岛类背景（下方透明天空）支持雷电
 // 各主题云朵 Y 范围覆盖（对齐该背景的实际透明区域）
 
 export const CLOUD_Y_RANGE = {
@@ -430,9 +439,10 @@ export function drawLightning() {
 export function drawBackground() {
   // 优先绘制背景贴图（cover 铺满画布），未加载完成时回退到主题渐变
   // ★ 2026-08-17 用户要求去掉浮岛底图（Background_183 / sprite_041 等浮岛地图）：DoG 战天天空盒自含暗底，
-  //   不再叠加浮岛地图。浮岛类主题（void/void2/thanatos）直接回落到暗紫渐变底，地图图片不再绘制。
+  //   不再叠加浮岛地图。浮岛类主题（void/void2）直接回落到暗紫渐变底，地图图片不再绘制。
+  //   ★ 2026-08-19 塔纳托斯恢复绘制 Background_183（用户要求）。
   let bg = bgCache[currentTheme];
-  if (currentTheme === 'void' || currentTheme === 'void2' || currentTheme === 'thanatos') bg = null;
+  if (currentTheme === 'void' || currentTheme === 'void2') bg = null;
   let particleColor = 'rgba(255,255,255,0.10)';
   if (bg && bg.complete && bg.naturalWidth > 0) {
     // 若背景图带透明区域（如渊海/浮岛），先铺底图（_fill）填满画布，避免上一帧残影透出
@@ -448,12 +458,54 @@ export function drawBackground() {
     }
     // 云朵层：仅在有透明天空带的背景（如渊海顶部）下、背景贴图之下绘制，使云只从透明区域透出
     if (cloudsOn && SKY_THEMES[currentTheme]) drawClouds();
-    // 闪电层（bolt）已移至暗化层之后绘制（Renderer.draw 内调用 drawLightning），
-    // 避免被黑夜暗化层压暗、保证高亮可见
-    const iw = bg.naturalWidth, ih = bg.naturalHeight;
-    const scale = Math.max(W / iw, H / ih);
-    const dw = iw * scale, dh = ih * scale;
-    ctx.drawImage(bg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    if (currentTheme === 'underworld') {
+      // 墓穴魔双层冥狱背景：纯黑打底（填充两张图的透明区），再底层 2 → 上层 11 顶部对齐 cover 叠加
+      ctx.fillStyle = '#030204';
+      ctx.fillRect(0, 0, W, H);
+      const ov = bgCache['underworld_ov'];
+      const drawLayer = (img, topAligned) => {
+        if (!img || !img.complete || !(img.naturalWidth > 0)) return;
+        const sc = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+        const dw = img.naturalWidth * sc, dh = img.naturalHeight * sc;
+        ctx.drawImage(img, (W - dw) / 2, topAligned ? 0 : (H - dh) / 2, dw, dh);
+      };
+      drawLayer(bg, true);   // 底层 Underworld_2
+      drawLayer(ov, true);   // 上层 Underworld_11（覆盖其上）
+
+      // 硫磺之心装饰：左右各 5 颗、自下而上做阶梯状排列（移植 DoHeartsSpawningCastAnimation，
+      // 原版：tempSpawnY=竞技场底部-250，每侧 spawnXAdd(i) 横向推进 + spawnYAdd(i) 逐层下移）
+      const bh = bgCache['brimstone_heart'];
+      if (bh && bh.complete && bh.naturalWidth > 0) {
+        const hw   = Math.min(W, H) * 0.07;   // 心形绘制尺寸（适配屏幕，调大）
+        const fh   = bh.naturalHeight / 6;    // 每帧帧高（6 帧心跳动画）
+        const now  = performance.now();
+        const frame= Math.floor(now / 70) % 6;  // 心跳帧率调快（110ms→70ms）
+        const pulse= 1 + 0.04 * Math.sin(now / 90);   // 轻微呼吸脉动
+        const sxp  = W * 0.14, syy = H * 0.115, off = W * 0.045; // 阶梯推进量
+        const baseY= H * 0.40 - hw / 2;       // 心脏排布起点（底部上方偏上，保证可见）
+        ctx.imageSmoothingEnabled = false;    // 像素心形：保持锐利（最近邻）
+        for (let i = 0; i < 4; i++) {   // 删掉位置最低的一对对称心脏（原来 5 行 → 4 行，剩 8 颗）
+          const ya = baseY + syy * i;
+          ctx.save();
+          ctx.translate(off + sxp * i, ya); ctx.scale(pulse, pulse);
+          ctx.drawImage(bh, 0, frame * fh, bh.naturalWidth, fh, -hw / 2, -hw / 2, hw, hw);
+          ctx.restore();
+          ctx.save();
+          ctx.translate(W - off - sxp * i, ya); ctx.scale(pulse, pulse);
+          ctx.drawImage(bh, 0, frame * fh, bh.naturalWidth, fh, -hw / 2, -hw / 2, hw, hw);
+          ctx.restore();
+        }
+        ctx.imageSmoothingEnabled = true;
+      }
+      particleColor = 'rgba(255, 90, 40, 0.06)';  // 地狱橙红微尘
+    } else {
+      // 闪电层（bolt）已移至暗化层之后绘制（Renderer.draw 内调用 drawLightning），
+      // 避免被黑夜暗化层压暗、保证高亮可见
+      const iw = bg.naturalWidth, ih = bg.naturalHeight;
+      const scale = Math.max(W / iw, H / ih);
+      const dw = iw * scale, dh = ih * scale;
+      ctx.drawImage(bg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    }
   } else {
     let g;
     if (currentTheme === 'desert') {

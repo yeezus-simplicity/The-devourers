@@ -24,9 +24,17 @@ export const keyBindings = {
   // Group: Worm Body
   seg_up:         { label: 'Add Segments',      defaultKey: 'ArrowUp', currentKey: 'ArrowUp',  group: 'body' },
   seg_down:       { label: 'Remove Segments',   defaultKey: 'ArrowDown',currentKey:'ArrowDown',group: 'body' },
-  form_large:     { label: 'Form - Large',      defaultKey: '1',       currentKey: '1',        group: 'body' },
-  form_medium:    { label: 'Form - Medium',     defaultKey: '2',       currentKey: '2',        group: 'body' },
-  form_small:     { label: 'Form - Small',      defaultKey: '3',       currentKey: '3',        group: 'body' },
+
+  // Group: Perforator
+  form_large:     { label: 'Form - Large',      defaultKey: '1',       currentKey: '1',        group: 'perforator' },
+  form_medium:    { label: 'Form - Medium',     defaultKey: '2',       currentKey: '2',        group: 'perforator' },
+  form_small:     { label: 'Form - Small',      defaultKey: '3',       currentKey: '3',        group: 'perforator' },
+
+  // Group: Storm Weaver
+  storm_toggleform: { label: 'Toggle Form (Armor)', defaultKey: 'p',   currentKey: 'p',        group: 'storm' },
+  storm_lightning: { label: 'Lightning Orb',    defaultKey: '4',       currentKey: '4',        group: 'storm' },
+  storm_frost:    { label: 'Frost Wave',        defaultKey: '5',       currentKey: '5',        group: 'storm' },
+  storm_tornado:  { label: 'Tornado',           defaultKey: '6',       currentKey: '6',        group: 'storm' },
 
   // Group: DoG Animations
   dog_bite:       { label: 'Bite Attack',       defaultKey: '5',       currentKey: '5',        group: 'dog' },
@@ -34,11 +42,20 @@ export const keyBindings = {
   dog_death:      { label: 'Death Demo',        defaultKey: '7',       currentKey: '7',        group: 'dog' },
   dog_laser:      { label: 'Laser Wall Recover',defaultKey: '8',       currentKey: '8',        group: 'dog' },
   dog_reset:      { label: 'Reset Animation',   defaultKey: ' ',       currentKey: ' ',        group: 'dog' },
-  dog_toggleform: { label: 'Phase Transition (Portal)', defaultKey: 'p', currentKey: 'p', group: 'dog' }
+  dog_toggleform: { label: 'Phase Transition (Portal)', defaultKey: 'p', currentKey: 'p', group: 'dog' },
+
+  // Group: Sepulcher
+  sepulcher_brimstone: { label: 'Brimstone Barrage', defaultKey: '1',  currentKey: '1',  group: 'sepulcher' },
+  sepulcher_form:   { label: 'Toggle Form (Hood)',  defaultKey: 'p',  currentKey: 'p',  group: 'sepulcher' },
+  sepulcher_shield: { label: 'Toggle Shield',       defaultKey: 'o',  currentKey: 'o',  group: 'sepulcher' },
+  sepulcher_dash:   { label: 'Dash Skill',          defaultKey: '2',  currentKey: '2',  group: 'sepulcher' },
+  sepulcher_cast:   { label: 'Summon Brothers',     defaultKey: '3',  currentKey: '3',  group: 'sepulcher' },
+  sepulcher_blast:  { label: 'BlastCast (Firebolt)',defaultKey: '5',  currentKey: '5',  group: 'sepulcher' },
+  sepulcher_bros_attack: { label: 'Brothers Attack', defaultKey: '4', currentKey: '4', group: 'sepulcher' }
 };
 
 
-export const GROUP_NAMES = { general: 'General', body: 'Worm Body', dog: 'DoG Animations' };
+export const GROUP_NAMES = { general: 'General', body: 'Worm Body', perforator: 'Perforator', storm: 'Storm Weaver', dog: 'DoG Animations', sepulcher: 'Sepulcher' };
 
 
 export let rebindingAction = null;  // currently rebinding action id, or null
@@ -64,7 +81,8 @@ export function renderKeyBindings() {
   if (!panel) return;
   let html = '';
   for (const [gid, gname] of Object.entries(GROUP_NAMES)) {
-    html += '<div class="ctrl-group' + (gid === 'dog' ? ' dog' : '') + '"><h3>' + gname + '</h3>';
+    const cls = (gid === 'dog' || gid === 'storm' || gid === 'perforator') ? ' ' + gid : '';
+    html += '<div class="ctrl-group' + cls + '"><h3>' + gname + '</h3>';
     html += '<div class="kb-grid">';
     for (const [id, kb] of Object.entries(keyBindings)) {
       if (kb.group !== gid) continue;

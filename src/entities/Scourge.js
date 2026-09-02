@@ -1,8 +1,8 @@
 // ===== entities/Scourge.js (migrated from scourge_selector.html) =====
 import { lightningIntensity } from '../core/Background.js';
-import { DoGAnim, drawDogJawInstance, updateHUD, PT_DIVE_SPEED, PT_SUCTION } from '../core/Renderer.js';
+import { DoGAnim, drawDogJawInstance, drawSepulcherArmsAt, updateHUD, PT_DIVE_SPEED, PT_SUCTION } from '../core/Renderer.js';
 import { dogDialogue } from '../core/DogDialogue.js';
-import { H, THANATOS_HOLD, THANATOS_TRANS, W, _glowOcc, _glowTmp, animTime, canvas, clamp01, ctx, currentChar, currentCharKey, imgs, isDual, lastHead, mouse, points, segments, thanatosPhase, thanatosTimer, worms, dogClip, set_isDual, set_worms, set_segments, set_points, set_lastHead, set_thanatosTimer, set_thanatosPhase, set__glowTmp, set__glowOcc} from '../core/globals.js';
+import { H, THANATOS_HOLD, THANATOS_TRANS, W, _glowOcc, _glowTmp, animTime, canvas, clamp01, ctx, currentChar, currentCharKey, imgs, isDual, lastHead, mouse, points, segments, sepulcherArms, thanatosPhase, thanatosTimer, worms, dogClip, set_isDual, set_worms, set_segments, set_points, set_lastHead, set_thanatosTimer, set_thanatosPhase, set__glowTmp, set__glowOcc, set_sepulcherArms} from '../core/globals.js';
 import { screenShake } from '../utils/ScreenShake.js';
 
 export function segBodyHalf(seg) {
@@ -14,7 +14,7 @@ export function segBodyHalf(seg) {
   if (seg.frameKey) {
     const fr = currentChar.frames[seg.frameKey];
     if (fr.anchor === 'base') return 0; // 根部为轴的头部：连接点即根部，自身贡献 0 半高
-    return fr.fh / 2; // 塔纳托斯：用单帧高度
+    return fr.fh * (fr.scale || 1) / 2; // 塔纳托斯：用单帧高度；墓穴魔能量球按 fr.scale 放大
   }
   if (!seg.img) return 0;
   return (seg.orient === 'h' ? seg.img.width : seg.img.height) / 2;
@@ -35,7 +35,7 @@ export function buildSegments() {
     for (const d of defs) {
       const res = currentChar.buildSegments(imgs, currentChar.bodyCount, d.suffix);
       const segs = res.segments;
-      for (let i = 1; i < segs.length; i++) segs[i].dist = (segBodyHalf(segs[i - 1]) + segBodyHalf(segs[i])) * sc - ov;
+      for (let i = 1; i < segs.length; i++) segs[i].dist = Math.max(0, (segBodyHalf(segs[i - 1]) + segBodyHalf(segs[i])) * sc - ov);
       const pts = [];
       let cum = 0;
       for (let i = 0; i < segs.length; i++) { pts.push({ x: d.x0, y: H * 0.5 + cum }); cum += (i > 0 ? segs[i].dist : 0); }
@@ -53,7 +53,8 @@ export function buildSegments() {
   const tailOv = isDesertTail ? (currentChar.tailOverlap != null ? currentChar.tailOverlap : ov) : ov;
   for (let i = 1; i < segments.length; i++) {
     const useOv = (isDesertTail && i === segments.length - 1) ? tailOv : ov;
-    segments[i].dist = (segBodyHalf(segments[i - 1]) + segBodyHalf(segments[i])) * sc - useOv;
+    // Math.max(0,…)：负距离会让链条约束恒成立、体节在两点间来回反弹（30Hz 视觉双球），必须钳制为非负
+    segments[i].dist = Math.max(0, (segBodyHalf(segments[i - 1]) + segBodyHalf(segments[i])) * sc - useOv);
   }
   const hx = points.length ? points[0].x : W / 2, hy = points.length ? points[0].y : H / 2;
   const newPoints = [{ x: hx, y: hy }];
@@ -61,7 +62,132 @@ export function buildSegments() {
   for (let i = 1; i < segments.length; i++) { cum += segments[i].dist; newPoints.push({ x: hx, y: hy + cum }); }
   set_points(newPoints);
   set_lastHead({ x: points[0].x, y: points[0].y });
+  // 墓穴魔：创建手臂（挂在 i%4==0 的体节上，每节左右各一只，移植 SepulcherArm.cs 的挂载规则）
+  if (currentCharKey === 'sepulcher') {
+    const arms = [];
+    // 墓穴魔手臂：每对手臂沿身体错开初相（WAVE_STEP）形成爬行波；右/左反相
+    let pairIndex = 0;
+    for (let i = 3; i < segments.length; i++) {
+      // 新链条 head→ball→body→ball→… 下，原版 i%4==0 的体节对应 i%4==0（b2 体节）
+      if (i % 4 === 0 && (segments[i].type === 'body1' || segments[i].type === 'body2')) {
+        const psi = pairIndex * WAVE_STEP;                  // 每对手臂初相沿身体错开 → 爬行波
+        arms.push(makeSepulcherArm(i, 1, psi, pairIndex));             // 右臂
+        arms.push(makeSepulcherArm(i, -1, psi + Math.PI, pairIndex));  // 左臂（与右臂反相）
+        pairIndex++;
+      }
+    }
+    set_sepulcherArms(arms);
+  }
   updateHUD();
+}
+
+function wrapAngle(a) {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+// 墓穴魔手臂爬动参数（极坐标伸缩模型 + 二连杆 IK。
+//  手掌沿"前进方向偏侧固定角 SIDE_BIAS"的射线上伸缩：臂展 R=REACH_BASE±REACH_SWING×sin(phase)。
+//  方向固定→手掌纯伸缩、绝不绕肩旋转；R∈[REACH_BASE−SWING, BASE+SWING]×reachDist 恒在二连杆可达区间内
+//  →IK 永不解不出/不夹边界/肘不翻面→关节绝不脱开；左右臂反相→交替前伸后收=爬行步态。）
+const V_REF = 220;             // 速度门控基准(px/s)：仅用于"是否移动"
+const MOVE_GATE = 0.05;        // s01 阈值（≈11px/s 以下视为静止）：静止时冻结步态
+const CRAWL_RATE = 3.5;        // 爬行相位速度(rad/s)：移动推进，静止冻结（加快→波浪滚动更明显）
+const REACH_BASE = 0.67;       // 基准臂展比例(×可达总长 FOREARM_HALF+ARM_LEN)：肩→掌距离的基准
+const REACH_SWING = 0.32;      // 伸缩幅度(比例)：R∈[0.35,0.99]×reachDist（仍落在二连杆可达内），前伸↔后收跨度更大
+const SIDE_BIAS = 0.30;        // 手臂相对前进方向的侧向展开角(rad≈17°)：朝外偏置的摆动中心
+const ROT_OFF = 0.30;          // 前臂外伸固定偏角（纯几何朝外，连接稳定）
+const WAVE_STEP = Math.PI / 2; // 沿身体波浪步长(rad=90°)：相邻对手臂初相正交→摆动完全错开，形成清晰的四相波浪
+const SWAY_SWING = 0.60;       // 绕肩横向摆动幅度(rad≈34°)：手掌方向随相位左右摆，叠加在伸缩上→明显的"摆动"波浪
+const FREQ_SLOPE = 0.35;       // 沿身体频率梯度(每对)：头对慢、尾对快 → 相位差持续累积 → 波浪沿身体明显滚动
+const FREQ_JITTER = 0.06;      // 每对固定频率抖动(±6%)：确定性伪随机，永久打散、杜绝周期性重对齐
+
+function makeSepulcherArm(segIndex, direction, psi, pairIndex) {
+  // 极坐标伸缩爬行波：phase = 爬行相位（初相由 psi 沿身体错开→交替爬行波；右/左反相）
+  // 手掌 = 肩 + 伸缩臂展(REACH_BASE±REACH_SWING×sin(phase)) 沿 (前进方向偏侧固定角 SIDE_BIAS) 方向。
+  // 方向固定→纯伸缩不旋转；臂展恒在 IK 可达区间内→肘恒外弯、关节绝不脱开。无世界锚点，永不拖拽。
+  // rate = 频率梯度(沿身体头慢尾快) × 确定性抖动(按 pairIndex，同对左右相同→反相稳定)
+  const jitter = ((Math.sin(pairIndex * 12.9898) * 43758.5453) % 1);   // 确定性伪随机 [-1,1)
+  const rate = CRAWL_RATE * (1 + FREQ_SLOPE * (pairIndex - 1.5)) * (1 + FREQ_JITTER * jitter);
+  return {
+    segIndex,
+    direction,
+    phase: psi,                  // 爬行相位（初相=psi，随时间推进）
+    rate,                       // 本只手臂的相位推进速率(rad/s)：沿身体不同频
+    pairIndex,                  // 第几对（0 起），用于初始错开
+    psi,                        // 初相保留（调试用）
+    px: undefined, py: undefined,// 体节上一帧位置（首帧初始化，用于采样速度）
+    limbs: [
+      { x: 0, y: 0, rot: 0 },   // 前臂（forearm）
+      { x: 0, y: 0, rot: 0 }    // 上臂（arm）
+    ]
+  };
+}
+
+// 墓穴魔手臂更新（爬动步态：状态机 reaching→held(手掌定住)→retracting + 对侧耦合；几何 limb 计算照抄 SepulcherArm.cs UpdateLimbs，一字不改）
+export function updateSepulcherArms(dt) {
+  if (currentCharKey !== 'sepulcher' || !sepulcherArms.length) return;
+  const sc = currentChar.scale;
+  for (let ai = 0; ai < sepulcherArms.length; ai++) {
+    const arm = sepulcherArms[ai];
+    const partner = sepulcherArms[ai ^ 1];   // 同对另一只（数组按 [右,左,右,左,…] 成对）
+    const seg = segments[arm.segIndex];
+    const p = points[arm.segIndex];
+    if (!seg || !p) continue;
+    // ① 体节速度采样（爬动信号）：首帧跳过，避免初值跳变
+    if (arm.px === undefined) { arm.px = p.x; arm.py = p.y; }
+    const vx = p.x - arm.px, vy = p.y - arm.py;
+    const vSeg = Math.hypot(vx, vy) / Math.max(dt, 1e-4);
+    arm.px = p.x; arm.py = p.y;
+    const s01 = clamp01(vSeg / V_REF);                 // 速度归一 [0,1]
+    const active = s01 > MOVE_GATE;                    // 速度门控：静止→冻结整个状态机（修"没动也收回"）
+    // 肩点/方向/缩放（几何常量，每帧重算）
+    const S = currentChar.scale * (currentChar.bodyScale || 1);  // 手臂整体缩放
+    const FOREARM_HALF = 30 * S;   // forearm 半长
+    const ARM_LEN = 62 * S;        // arm 全长
+    const R_body = 41 * S;         // 体节半高
+    const reach = seg.angle + Math.PI / 2;             // 体节法向
+    const fwdX = Math.cos(seg.angle), fwdY = Math.sin(seg.angle); // 前进方向
+    const sideX = -Math.sin(seg.angle) * arm.direction, sideY = Math.cos(seg.angle) * arm.direction; // 该侧外法向
+    const ang = reach - (Math.PI / 2 - ROT_OFF - 0.77) * arm.direction;
+    const ux0 = (arm.direction * 60) * Math.cos(ang) - 55 * Math.sin(ang);
+    const uy0 = (arm.direction * 60) * Math.sin(ang) + 55 * Math.cos(ang);
+    const ul = Math.hypot(ux0, uy0) || 1;
+    const uX = ux0 / ul, uY = uy0 / ul;
+    const Sx = p.x + uX * (R_body + FOREARM_HALF * 0.15);   // 肩点：内端搭在体节边缘、手臂主体伸在体外（不贴体节不悬空）
+    const Sy = p.y + uY * (R_body + FOREARM_HALF * 0.15);
+    // ② 爬行相位推进：每只手臂独立速率（频率梯度×抖动）→ 不同频波浪；速度门控（移动才推进，静止冻结）
+    if (active) {
+      arm.phase += dt * arm.rate * (0.3 + 0.7 * s01);  // 速度门控：移动越快爬越快，静止冻结
+    }
+    // ③ 按相位计算手掌位置（极坐标伸缩：方向固定朝前微偏侧，臂展随相位伸缩→纯前伸/后收，不绕肩旋转；
+    //    臂展 R 恒在二连杆可达区间内 → IK 恒有解、肘恒外弯、关节绝不脱开）
+    const reachDist = FOREARM_HALF + ARM_LEN;             // 二连杆可达总长（肩→掌最大臂展）
+    const R = (REACH_BASE + REACH_SWING * Math.sin(arm.phase)) * reachDist; // 伸缩臂展：前伸(R大)↔后收(R小)
+    const theta = (SIDE_BIAS + SWAY_SWING * Math.sin(arm.phase)) * arm.direction; // 绕肩横向摆动 + 朝外偏置：方向随相位左右摆
+    // 手掌在"前进方向"旋转 theta 后的固定方向上、距离肩 R 处（R 伸缩 + theta 摆动 → 手臂既伸缩又横向摆，波浪明显）
+    const palmX = Sx + R * (fwdX * Math.cos(theta) - fwdY * Math.sin(theta));
+    const palmY = Sy + R * (fwdX * Math.sin(theta) + fwdY * Math.cos(theta));
+    // 二连杆 IK：肩 S + 掌 H → 肘 E；前臂/上臂刚性、肘外弯
+    const dxH = palmX - Sx, dyH = palmY - Sy;
+    const dH = Math.hypot(dxH, dyH) || 1e-4;
+    const ca = (FOREARM_HALF * FOREARM_HALF + dH * dH - ARM_LEN * ARM_LEN) / (2 * FOREARM_HALF * dH);
+    const A = Math.acos(Math.max(-1, Math.min(1, ca)));
+    const base = Math.atan2(dyH, dxH);
+    const E1x = Sx + FOREARM_HALF * Math.cos(base + A), E1y = Sy + FOREARM_HALF * Math.sin(base + A);
+    const E2x = Sx + FOREARM_HALF * Math.cos(base - A), E2y = Sy + FOREARM_HALF * Math.sin(base - A);
+    // 取肘在【外法向】一侧的解 → 肘外弯、臂不穿身体
+    const dot1 = (E1x - p.x) * sideX + (E1y - p.y) * sideY;
+    const dot2 = (E2x - p.x) * sideX + (E2y - p.y) * sideY;
+    const Ex = dot1 >= dot2 ? E1x : E2x, Ey = dot1 >= dot2 ? E1y : E2y;
+    // limb：limbs[0]=前臂中心(肩到肘中点)，limbs[1]=掌 H
+    arm.limbs[0].x = (Sx + Ex) / 2;
+    arm.limbs[0].y = (Sy + Ey) / 2;
+    arm.limbs[0].rot = Math.atan2(Ey - Sy, Ex - Sx);
+    arm.limbs[1].x = palmX; arm.limbs[1].y = palmY;
+    arm.limbs[1].rot = Math.atan2(palmY - Ey, palmX - Ex);
+  }
 }
 
 // 各族体节特点 → 决定每次 ↑/↓ 增减的体节数与下限（数据驱动，集中记录特征）
@@ -195,7 +321,7 @@ export function update(dt) {
     const dx = mouse.x - head.x;
     const dy = mouse.y - head.y;
     const dist = Math.hypot(dx, dy);
-    const speed = Math.min(dist * currentChar.accel, currentChar.maxSpeed) * ((currentCharKey === 'devourer_of_gods' && DoGAnim.jawCharging) ? 0.4 : 1);
+    const speed = Math.min(dist * currentChar.accel, currentChar.maxSpeed) * ((currentCharKey === 'devourer_of_gods' && DoGAnim.jawCharging) ? 0.4 : 1) * (currentChar.headLag ?? 1);
     if (dist > 0.5) { head.x += (dx / dist) * speed; head.y += (dy / dist) * speed; }
     const movedX = head.x - lastHead.x, movedY = head.y - lastHead.y;
     if (Math.hypot(movedX, movedY) > 0.05) segments[0].angle = lerpAngle(segments[0].angle, Math.atan2(movedY, movedX), currentChar.turnSmooth);
@@ -233,6 +359,7 @@ export function update(dt) {
     else if (thanatosPhase === 'red' && thanatosTimer >= THANATOS_HOLD) { set_thanatosPhase('toBlue'); set_thanatosTimer(0); }
     else if (thanatosPhase === 'toBlue' && thanatosTimer >= THANATOS_TRANS) { set_thanatosPhase('blue'); set_thanatosTimer(0); }
   }
+  if (currentCharKey === 'sepulcher') updateSepulcherArms(dt);
 }
 
 // 单条虫的自主更新：头部朝目标移动（主虫跟随鼠标全屏，副虫镜像主虫头部），体节链式跟随
@@ -303,7 +430,8 @@ export function drawSegmentsBase() {
       const headShakeBase = (currentCharKey === 'devourer_of_gods' && seg.type === 'head') ? DoGAnim.jawShakeY : 0;
       ctx.translate(p.x, p.y + headShakeBase);
       ctx.rotate(seg.angle + Math.PI / 2);
-      ctx.scale(currentChar.scale * segScale, currentChar.scale * segScale);
+      const bodyScale = currentChar.bodyScale || 1;   // 墓穴魔专属：放大体节，让前臂内端嵌入体节、消除"漂浮"
+      ctx.scale(currentChar.scale * bodyScale * segScale, currentChar.scale * bodyScale * segScale);
       if (seg.frameKey) {
         const fr = currentChar.frames[seg.frameKey];
         const period = fr.period != null ? fr.period : fr.fh + 2;
@@ -343,6 +471,9 @@ export function drawSegmentsBase() {
         // 改由 drawSegmentsGlow() 在暗化层之后统一绘制，原色不受黑夜影响、且按深度正确遮挡。
       }
       ctx.restore();
+      // 墓穴魔手臂：在本节画完后立刻画挂在本节的手臂 → 参与体节深度排序
+      //（尾先画→头后画：后面体节的手臂被更靠前的体节/头部盖住，不再挡前方）
+      if (currentCharKey === 'sepulcher') drawSepulcherArmsAt(i);
     }
   }
 }
@@ -443,8 +574,11 @@ export function drawSegmentsGlow() {
     // 自发光亮纹随 DoG 整体透明度淡出（隐身时亮纹一起隐），非 DoG 角色恒为 1；
     // 过场钻门时再乘上沿链吞噬的消散透明度（亮纹随体节一起平滑缩没）
     const dogAlpha = (currentCharKey === 'devourer_of_gods') ? clamp01(DoGAnim.opacity * DoGAnim.deathOpacity) : 1;
-    tctx.globalAlpha = dogAlpha * alpha;
-    for (const g of glowArr) tctx.drawImage(g, -h.width / 2, dy);
+    // Storm Weaver 尾部亮纹：呼吸脉动（透明度，不改变位置）
+    const glowPulse = (currentCharKey === 'storm_weaver' && seg.type === 'tail') ? 0.8 + Math.sin(animTime * 3) * 0.2 : 1;
+    tctx.globalAlpha = dogAlpha * alpha * glowPulse;
+    // 按体节尺寸绘制（glow 帧与体节贴图同尺寸时无差别；风暴裸装尾 42×68 时把 46×92 亮纹缩放嵌合）
+    for (const g of glowArr) tctx.drawImage(g, -h.width / 2, dy, h.width, h.height);
     tctx.globalAlpha = 1;
     tctx.restore();
     // 扣掉更靠前体节（含另一条更前的虫）轮廓：避免发光穿透 / 浮到上方

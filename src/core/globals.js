@@ -106,6 +106,9 @@ export function ensureFxCanvas() {
 
 export let _glowTmp = null, _glowOcc = null;
 
+// 墓穴魔 Sepulcher 手臂：挂在体节上，每只含前臂/上臂两个肢体点（移植 SepulcherArm.cs）
+export let sepulcherArms = [];
+
 
 // ---- auto-generated setters for cross-module shared state ----
 export function set_currentCharKey(v){ currentCharKey = v; }
@@ -134,3 +137,4 @@ export function set_thanatosTimer(v){ thanatosTimer = v; }
 export function set__fxCanvas(v){ _fxCanvas = v; }
 export function set__glowTmp(v){ _glowTmp = v; }
 export function set__glowOcc(v){ _glowOcc = v; }
+export function set_sepulcherArms(v){ sepulcherArms = v; }

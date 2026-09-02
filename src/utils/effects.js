@@ -1,6 +1,5 @@
 // ===== utils/effects.js =====
 // Extension interfaces for the game's visual effects layer.
-//
 // The goal of this module is to make it *cheap* to add new trail / particle
 // behaviours without touching the render pipeline. Two building blocks are
 // provided:
@@ -20,8 +19,6 @@
 // To add your own effect: subclass one of the bases (or implement the
 // {update, draw, enabled} interface) and call `effects.register('myFx', fx)`.
 // No other file needs to change.
-
-import { currentCharKey, isDual, points, worms } from '../core/globals.js';
 
 // ── Registry ────────────────────────────────────────────────────────────
 
@@ -154,33 +151,7 @@ export class TrailRenderer {
   }
 }
 
-// ── Example: trail that follows the controlled worm's head ────────────────
-// Registered but DISABLED by default so it does not change existing visuals.
-// Toggle live with the `T` key (see bottom of this file) or via
-// `effects.get('headTrail').enabled = true`.
-
-class HeadTrail extends TrailRenderer {
-  getHead() {
-    if (!currentCharKey) return null;
-    if (isDual) {
-      const w = worms.find(x => x.isPrimary);
-      return w ? w.points[0] : null;
-    }
-    return points[0] || null;
-  }
-}
-
-export const headTrail = effects.register('headTrail', new HeadTrail({ length: 28, width: 12, color: 'rgba(180,220,255,0.7)' }));
-headTrail.enabled = false;
-
-// Lightweight live toggle so the extension point is demonstrable without
-// editing key bindings. Only acts while a character is on screen.
+// expose for console / DebugPanel use
 if (typeof window !== 'undefined') {
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyT' && currentCharKey) {
-      headTrail.enabled = !headTrail.enabled;
-    }
-  });
-  // expose for console / DebugPanel use
   window.__effects = effects;
 }

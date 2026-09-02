@@ -113,5 +113,39 @@ export const SEGMENT_BUILDERS = {
     imgs['__dog_body_glow__'] = bodyGlow;
     imgs['__dog_tail_glow__'] = tailGlow;
     return { segments: s, bodyCount: count };
+  },
+
+  // Storm Weaver 风暴编织者：装甲/裸装双形态（P 键切换），尾部亮纹内建于装甲尾贴图
+  storm_weaver(imgs, count) {
+    const naked = !!currentChar.armorOff;
+    const s = [
+      { type: 'head', img: naked ? imgs.head_naked : imgs.head, angle: 0, dist: 0, orient: 'v' }
+    ];
+    for (let i = 0; i < count; i++) {
+      s.push({ type: 'body', img: naked ? imgs.body_naked : imgs.body, angle: 0, dist: 0, orient: 'v' });
+    }
+    s.push({ type: 'tail', img: naked ? imgs.tail_naked : imgs.tail, angle: 0, dist: 0, orient: 'v', glowKey: 'tail_glow' });
+    return { segments: s, bodyCount: count };
+  },
+
+  // 墓穴魔 Sepulcher：头部后是左体节(body1)，之后交替 body1/body2，与尾部相连的也是左体节；
+  // 能量球保留在头尾：head → ball → body → ball → … → body → ball → tail。
+  // 体节数强制奇数 → 两端始终是左体节。头→球距离由 Scourge.buildSegments 的 Math.max(0,…) 保证非负，避免振荡。
+  sepulcher(imgs, count) {
+    const n = Math.max(3, Math.floor(count));
+    const bodyCount = n % 2 === 0 ? n + 1 : n;   // 强制奇数，保证头尾都是左体节
+    const core = [{ type: 'head', img: imgs.head, angle: 0, dist: 0, orient: 'v' }];
+    for (let i = 0; i < bodyCount; i++) {
+      const isLeft = i % 2 === 0;
+      core.push({ type: isLeft ? 'body1' : 'body2', img: isLeft ? imgs.body1 : imgs.body2, angle: 0, dist: 0, orient: 'v' });
+    }
+    core.push({ type: 'tail', img: imgs.tail, angle: 0, dist: 0, orient: 'v' });
+    // 每个体节（除头部）之前都插一个能量球 → 头尾都有球
+    const s = [];
+    for (let i = 0; i < core.length; i++) {
+      if (i > 0) s.push({ type: 'energy_ball', frameKey: 'energy_ball', angle: 0, dist: 0, orient: 'v' });
+      s.push(core[i]);
+    }
+    return { segments: s, bodyCount };
   }
 };
