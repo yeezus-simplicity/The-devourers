@@ -128,6 +128,19 @@ export const SEGMENT_BUILDERS = {
     return { segments: s, bodyCount: count };
   },
 
+  // Primordial Wyrm（成年幻海妖龙）：头部与尾部均连接普通体节（不带 alternate），
+  // 中间 body1/body_alt 严格交替；初始 7 节，bodyStyle='alternating' 使 ↑/↓ 一次成对 ±2。
+  primordial_wyrm(imgs, count) {
+    const n = Math.max(1, Math.floor(count));
+    const s = [{ type: 'head', img: imgs.head, angle: 0, dist: 0, orient: 'v' }];
+    for (let i = 0; i < n; i++) {
+      const isAlt = i % 2 === 1;            // 0,2,4…=普通 body；1,3,5…=alternate
+      s.push({ type: isAlt ? 'body_alt' : 'body', img: isAlt ? imgs.body_alt : imgs.body, angle: 0, dist: 0, orient: 'v' });
+    }
+    s.push({ type: 'tail', img: imgs.tail, angle: 0, dist: 0, orient: 'v' });
+    return { segments: s, bodyCount: n };
+  },
+
   // 墓穴魔 Sepulcher：头部后是左体节(body1)，之后交替 body1/body2，与尾部相连的也是左体节；
   // 能量球保留在头尾：head → ball → body → ball → … → body → ball → tail。
   // 体节数强制奇数 → 两端始终是左体节。头→球距离由 Scourge.buildSegments 的 Math.max(0,…) 保证非负，避免振荡。

@@ -22,6 +22,7 @@ export const BG_SOURCES = {
   aquatic_fill: 'sprites/sprite_040.png',
   void: 'sprites/sprite_041.png',
   void2: 'backgrounds/Splash_4_0.png',
+  primordial: 'backgrounds/Splash_5_0.png',
   thanatos: 'backgrounds/Background_183.png',
   storm: 'backgrounds/Background_113.png',
   storm_fill: 'sky/Sunrise_Blue.png',
@@ -46,7 +47,8 @@ export const BACKGROUND_LIST = [
   { id: 5, name: '星虚空',    theme: 'void2',    src: BG_SOURCES.void2 },
   { id: 6, name: '塔纳托斯',  theme: 'thanatos', src: BG_SOURCES.thanatos },
   { id: 7, name: '风暴',      theme: 'storm',    src: BG_SOURCES.storm, fill: BG_SOURCES.storm_fill },
-  { id: 8, name: '冥狱',      theme: 'underworld', src: BG_SOURCES.underworld, overlay: BG_SOURCES.underworld_ov }
+  { id: 8, name: '冥狱',      theme: 'underworld', src: BG_SOURCES.underworld, overlay: BG_SOURCES.underworld_ov },
+  { id: 9, name: '幻海深渊',  theme: 'primordial', src: BG_SOURCES.primordial }
 ];
 
 export function getBackground(id) {

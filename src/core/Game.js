@@ -57,6 +57,7 @@ export function init() {
     im.src = IMAGES.xm05_thanatos.head_sheet.url;
   })();
   document.getElementById('preview-astrum').src = IMAGES.astrum_deus.head;
+  document.getElementById('preview-primordial').src = IMAGES.primordial_wyrm.head;
   // 选角预览用独立 preview 字段（避免把二阶段头覆盖进游戏内一阶段 head）
   document.getElementById('preview-devourer').src = (IMAGES.devourer_of_gods.preview || IMAGES.devourer_of_gods.head).url;
   document.getElementById('preview-storm').src = IMAGES.storm_weaver.head;
